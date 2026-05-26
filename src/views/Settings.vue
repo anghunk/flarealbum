@@ -15,12 +15,39 @@
           </a-radio-group>
         </a-form-item>
         
-        <a-form-item label="默认上传路径">
-          <a-input 
-            v-model:value="defaultUploadPath"
-            placeholder="例如: images/"
+        <a-form-item label="上传路径模板">
+          <a-select
+            v-model:value="uploadPathTemplate"
+            placeholder="选择或自定义上传路径模板"
+            @change="handleTemplateChange"
+            allowClear
+          >
+            <a-select-option value="{year}/{month}/{day}">{year}/{month}/{day}（按年月日）</a-select-option>
+            <a-select-option value="{year}/{month}">{year}/{month}（按年月）</a-select-option>
+            <a-select-option value="{year}/{month}/{day}/uploads">{year}/{month}/{day}/uploads</a-select-option>
+            <a-select-option value="{year}/{month}/{day}/{timestamp}">{year}/{month}/{day}/{timestamp}</a-select-option>
+            <a-select-option value="custom">自定义...</a-select-option>
+          </a-select>
+          <a-input
+            v-if="uploadPathTemplate === 'custom'"
+            v-model:value="customUploadPathTemplate"
+            placeholder="例如: {year}/{month}/{day}/images/"
+            style="margin-top: 8px"
+          />
+          <div class="setting-tip">
+            当前模板示例：<a-tag color="blue">{{ getTemplateExample() }}</a-tag>
+          </div>
+        </a-form-item>
+
+        <a-form-item label="上传路径前缀" v-if="uploadPathTemplate">
+          <a-input
+            v-model:value="uploadPathPrefix"
+            placeholder="例如: images/（将添加在模板解析结果之前）"
             addonAfter="/"
           />
+          <div class="setting-tip">
+            最终路径示例：<a-tag color="green">{{ getFinalPathExample() }}</a-tag>
+          </div>
         </a-form-item>
         
         <a-form-item label="自定义域名前缀">
@@ -130,28 +157,66 @@ import { useStore } from 'vuex'
 import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import s3Service from '../services/s3Service'
 import cacheService from '../services/cacheService'
+import { resolvePathTemplate } from '../utils/pathTemplate'
 
 const router = useRouter()
 const store = useStore()
 
 // 设置项
 const copyFormat = ref('url')
-const defaultUploadPath = ref('')
+const uploadPathTemplate = ref('') // 路径模板，如 {year}/{month}/{day}
+const customUploadPathTemplate = ref('') // 自定义模板内容
+const uploadPathPrefix = ref('') // 路径前缀，添加在模板结果之前
 const defaultFileNameOption = ref('original')
 const autoCopy = ref(true)
 const customDomainPrefix = ref('') // 新增自定义域名前缀
 const convertToWebp = ref(false)
 const webpQuality = ref(75)
 
+// 处理模板选择变化
+const handleTemplateChange = (value) => {
+  if (value !== 'custom') {
+    customUploadPathTemplate.value = ''
+  }
+}
+
+// 获取当前模板的示例
+const getTemplateExample = () => {
+  let template = uploadPathTemplate.value
+  if (template === 'custom') {
+    template = customUploadPathTemplate.value
+  }
+  if (!template) return '根目录'
+  return resolvePathTemplate(template) || '根目录'
+}
+
+// 获取最终路径示例
+const getFinalPathExample = () => {
+  let template = uploadPathTemplate.value
+  if (template === 'custom') {
+    template = customUploadPathTemplate.value
+  }
+  const resolved = resolvePathTemplate(template || '')
+  const prefix = uploadPathPrefix.value ? uploadPathPrefix.value + '/' : ''
+  const basePath = prefix + resolved
+  return basePath ? basePath + '/' : '根目录' + '/'
+}
+
 // 生成示例 URL
 const getExampleUrl = () => {
   const domain = customDomainPrefix.value.trim().replace(/\/+$/, '')
-  const path = defaultUploadPath.value.trim().replace(/^\/+|\/+$/g, '')
+  const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, '')
+  let template = uploadPathTemplate.value
+  if (template === 'custom') {
+    template = customUploadPathTemplate.value
+  }
+  const resolvedPath = template ? resolvePathTemplate(template) : ''
+  const basePath = prefix ? prefix + '/' + resolvedPath : resolvedPath
   const filename = 'example.jpg'
-  
+
   if (domain) {
-    if (path) {
-      return `${domain}/${path}/${filename}`
+    if (basePath) {
+      return `${domain}/${basePath}/${filename}`
     } else {
       return `${domain}/${filename}`
     }
@@ -164,17 +229,21 @@ const getExampleUrl = () => {
 const saveSettings = () => {
   // 处理域名前缀，移除结尾的斜杠
   const domain = customDomainPrefix.value.trim().replace(/\/+$/, '')
-  
+  // 处理路径前缀，移除结尾的斜杠
+  const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, '')
+
   const settings = {
     copyFormat: copyFormat.value,
-    defaultUploadPath: defaultUploadPath.value,
+    uploadPathTemplate: uploadPathTemplate.value,
+    customUploadPathTemplate: customUploadPathTemplate.value,
+    uploadPathPrefix: prefix,
     defaultFileNameOption: defaultFileNameOption.value,
     autoCopy: autoCopy.value,
-    customDomainPrefix: domain, // 保存自定义域名前缀
+    customDomainPrefix: domain,
     convertToWebp: convertToWebp.value,
     webpQuality: webpQuality.value
   }
-  
+
   // 使用 Vuex store action 保存设置
   store.dispatch('saveUserSettings', settings).then(() => {
     message.success('设置已保存并生效')
@@ -227,42 +296,49 @@ onMounted(() => {
   if (storeSettings) {
     // 如果 store 中有设置，使用 store 中的设置
     copyFormat.value = storeSettings.copyFormat || 'url'
-    defaultUploadPath.value = storeSettings.defaultUploadPath || ''
+    uploadPathTemplate.value = storeSettings.uploadPathTemplate || ''
+    customUploadPathTemplate.value = storeSettings.customUploadPathTemplate || ''
+    uploadPathPrefix.value = storeSettings.uploadPathPrefix || ''
     defaultFileNameOption.value = storeSettings.defaultFileNameOption || 'original'
     autoCopy.value = storeSettings.autoCopy !== undefined ? storeSettings.autoCopy : true
-    customDomainPrefix.value = storeSettings.customDomainPrefix || '' // 加载自定义域名前缀
+    customDomainPrefix.value = storeSettings.customDomainPrefix || ''
     convertToWebp.value = storeSettings.convertToWebp !== undefined ? storeSettings.convertToWebp : false
     webpQuality.value = storeSettings.webpQuality || 75
   } else {
     // 尝试从 cacheService 加载
     const cachedSettings = cacheService.loadUserSettings()
-    
+
     if (cachedSettings) {
       copyFormat.value = cachedSettings.copyFormat || 'url'
-      defaultUploadPath.value = cachedSettings.defaultUploadPath || ''
+      uploadPathTemplate.value = cachedSettings.uploadPathTemplate || ''
+      customUploadPathTemplate.value = cachedSettings.customUploadPathTemplate || ''
+      uploadPathPrefix.value = cachedSettings.uploadPathPrefix || ''
       defaultFileNameOption.value = cachedSettings.defaultFileNameOption || 'original'
       autoCopy.value = cachedSettings.autoCopy !== undefined ? cachedSettings.autoCopy : true
-      customDomainPrefix.value = cachedSettings.customDomainPrefix || '' // 加载自定义域名前缀
+      customDomainPrefix.value = cachedSettings.customDomainPrefix || ''
       convertToWebp.value = cachedSettings.convertToWebp !== undefined ? cachedSettings.convertToWebp : false
       webpQuality.value = cachedSettings.webpQuality || 75
-      
+
       // 同步到 Vuex
       store.commit('setUserSettings', cachedSettings)
     } else {
       // 最后尝试从 localStorage 加载（兼容旧版本）
       const storedSettings = localStorage.getItem('userSettings')
-      
+
       if (storedSettings) {
         try {
           const settings = JSON.parse(storedSettings)
           copyFormat.value = settings.copyFormat || 'url'
-          defaultUploadPath.value = settings.defaultUploadPath || ''
+          // 兼容旧的 defaultUploadPath 设置
+          uploadPathTemplate.value = settings.uploadPathTemplate || ''
+          customUploadPathTemplate.value = settings.customUploadPathTemplate || ''
+          uploadPathPrefix.value = settings.uploadPathPrefix || settings.defaultUploadPath || ''
           defaultFileNameOption.value = settings.defaultFileNameOption || 'original'
           autoCopy.value = settings.autoCopy !== undefined ? settings.autoCopy : true
-          customDomainPrefix.value = settings.customDomainPrefix || '' // 加载自定义域名前缀
+          customDomainPrefix.value = settings.customDomainPrefix || ''
           convertToWebp.value = settings.convertToWebp !== undefined ? settings.convertToWebp : false
           webpQuality.value = settings.webpQuality || 75
-          
+
           // 同步到 Vuex
           store.commit('setUserSettings', settings)
         } catch (e) {

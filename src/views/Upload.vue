@@ -208,10 +208,10 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { 
+import {
   InboxOutlined,
   UploadOutlined,
-  FolderOutlined, 
+  FolderOutlined,
   PartitionOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined
@@ -219,6 +219,7 @@ import {
 import s3Service from '../services/s3Service'
 import cacheService from '../services/cacheService'
 import imageCompression from 'browser-image-compression'
+import { resolvePathTemplate } from '../utils/pathTemplate'
 
 const store = useStore()
 const router = useRouter()
@@ -260,7 +261,23 @@ const webpQuality = computed(() => {
 
 // 显示当前上传路径
 const displayUploadPath = computed(() => {
-  return uploadPath.value ? uploadPath.value : '根目录'
+  if (uploadPath.value) return uploadPath.value
+
+  const template = userSettings.value.uploadPathTemplate
+  const customTemplate = userSettings.value.customUploadPathTemplate
+  const prefix = userSettings.value.uploadPathPrefix
+
+  if (!template) return '根目录'
+
+  let resolvedPath = template === 'custom'
+    ? resolvePathTemplate(customTemplate || '')
+    : resolvePathTemplate(template)
+
+  if (prefix) {
+    resolvedPath = prefix + '/' + resolvedPath
+  }
+
+  return resolvedPath || '根目录'
 })
 
 // 获取树中文件夹的子项数量
@@ -421,21 +438,38 @@ const generateFilename = (file) => {
 
 // 构建上传路径
 const buildUploadPath = (filename) => {
-  let path = uploadPath.value.trim()
-  
-  // 处理路径格式，避免出现双斜杠
-  if (path) {
-    // 移除开头和结尾的斜杠
-    path = path.replace(/^\/+|\/+$/g, '')
-    // 如果路径不为空，添加一个斜杠
-    if (path) {
-      path = path + '/'
+  // 从用户设置中获取模板配置
+  const template = userSettings.value.uploadPathTemplate
+  const customTemplate = userSettings.value.customUploadPathTemplate
+  const prefix = userSettings.value.uploadPathPrefix
+
+  let resolvedPath = ''
+  if (template) {
+    if (template === 'custom' && customTemplate) {
+      resolvedPath = resolvePathTemplate(customTemplate)
+    } else {
+      resolvedPath = resolvePathTemplate(template)
     }
   }
-  
+
+  // 如果手动选择了上传路径，使用手动输入的路径
+  const manualPath = uploadPath.value.trim()
+
+  // 组合路径
+  const parts = []
+  if (prefix) parts.push(prefix)
+  if (manualPath) parts.push(manualPath)
+  else if (resolvedPath) parts.push(resolvedPath)
+
+  // 处理路径格式，避免出现双斜杠
+  let path = parts.join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '')
+  if (path) {
+    path = path + '/'
+  }
+
   // 确保文件名不包含路径分隔符
   const cleanFilename = filename.replace(/^\/+/, '')
-  
+
   return path + cleanFilename
 }
 
@@ -570,15 +604,9 @@ const navigateToManage = () => {
 
 // 挂载时加载数据
 onMounted(() => {
-  // 尝试从本地存储恢复上传路径
-  const savedUploadPath = localStorage.getItem('r2_image_hosting_upload_path')
-  if (savedUploadPath) {
-    uploadPath.value = savedUploadPath
-  }
-  
   // 加载树结构
   loadBucketTree()
-  
+
   // 检查是否有 S3 配置
   if (!checkS3Config.value) {
     // 尝试从缓存加载配置
@@ -600,11 +628,13 @@ watch(
   }
 )
 
-// 监听上传路径变化，保存到本地存储
+// 监听上传路径变化，保存到本地存储（仅手动选择的路径）
 watch(
   uploadPath,
   (newPath) => {
-    localStorage.setItem('r2_image_hosting_upload_path', newPath)
+    if (newPath) {
+      localStorage.setItem('r2_image_hosting_upload_path', newPath)
+    }
   }
 )
 </script>
