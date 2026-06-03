@@ -210,40 +210,52 @@
         </template>
       </a-table>
 
-      <!-- 网格视图 -->
+      <!-- 网格视图（虚拟列表渲染） -->
       <div v-else-if="viewMode === 'grid'" class="grid-view">
-        <a-row :gutter="[16, 16]">
-          <!-- 文件夹 -->
-          <a-col
-            v-for="item in fileList.filter((file) => file.isFolder)"
-            :key="item.key"
-            :xs="12"
-            :sm="8"
-            :md="6"
-            :lg="4"
-            :xl="4"
+        <!-- 文件数量提示 -->
+        <div v-if="gridItems.length > 0" class="grid-count-info">
+          <a-tag v-if="fileList.filter((f) => f.isFolder).length" color="blue">
+            <folder-outlined /> {{ fileList.filter((f) => f.isFolder).length }} 个文件夹
+          </a-tag>
+          <a-tag
+            v-if="fileList.filter((f) => !f.isFolder && isImageFile(f.name)).length"
+            color="green"
           >
-            <a-card class="grid-card folder-card" @click="openFolder(item.key)">
+            <file-image-outlined />
+            {{ fileList.filter((f) => !f.isFolder && isImageFile(f.name)).length }} 张图片
+          </a-tag>
+          <a-tag
+            v-if="fileList.filter((f) => !f.isFolder && !isImageFile(f.name)).length"
+            color="default"
+          >
+            <file-outlined />
+            {{ fileList.filter((f) => !f.isFolder && !isImageFile(f.name)).length }} 个文件
+          </a-tag>
+        </div>
+
+        <VirtualGrid
+          v-if="gridItems.length > 0"
+          :items="gridItems"
+          :estimatedRowHeight="250"
+          :resetKey="gridResetKey"
+          @visibleChange="handleVisibleChange"
+        >
+          <template #item="{ item }">
+            <!-- 文件夹卡片 -->
+            <a-card
+              v-if="item.type === 'folder'"
+              class="grid-card folder-card"
+              @click="openFolder(item.key)"
+            >
               <div class="grid-card-content">
                 <folder-outlined class="grid-folder-icon" />
                 <div class="grid-file-name">{{ item.name }}</div>
               </div>
             </a-card>
-          </a-col>
 
-          <!-- 图片文件 -->
-          <a-col
-            v-for="item in fileList.filter(
-              (file) => !file.isFolder && isImageFile(file.name)
-            )"
-            :key="item.key"
-            :xs="12"
-            :sm="8"
-            :md="6"
-            :lg="4"
-            :xl="4"
-          >
+            <!-- 图片卡片 -->
             <a-card
+              v-else-if="item.type === 'image'"
               class="grid-card image-card"
               :class="{ 'deleting-card': deletingKeys.has(item.key) }"
               @click="deletingKeys.has(item.key) ? null : openPreview(item)"
@@ -288,21 +300,10 @@
                 </a-popconfirm>
               </template>
             </a-card>
-          </a-col>
 
-          <!-- 其他文件 -->
-          <a-col
-            v-for="item in fileList.filter(
-              (file) => !file.isFolder && !isImageFile(file.name)
-            )"
-            :key="item.key"
-            :xs="12"
-            :sm="8"
-            :md="6"
-            :lg="4"
-            :xl="4"
-          >
+            <!-- 其他文件卡片 -->
             <a-card
+              v-else
               class="grid-card file-card"
               :class="{ 'deleting-card': deletingKeys.has(item.key) }"
             >
@@ -338,15 +339,13 @@
                 </a-popconfirm>
               </template>
             </a-card>
-          </a-col>
+          </template>
+        </VirtualGrid>
 
-          <!-- 如果没有文件显示空状态 -->
-          <a-col :span="24" v-if="fileList.length === 0">
-            <div class="empty-container">
-              <a-empty description="当前目录为空" />
-            </div>
-          </a-col>
-        </a-row>
+        <!-- 空状态 -->
+        <div v-else class="empty-container">
+          <a-empty description="当前目录为空" />
+        </div>
       </div>
     </a-card>
 
@@ -391,6 +390,7 @@ import {
 } from "@ant-design/icons-vue";
 import s3Service from "../services/s3Service";
 import cacheService from "../services/cacheService";
+import VirtualGrid from "../components/VirtualGrid.vue";
 
 const store = useStore();
 const route = useRoute();
@@ -410,6 +410,80 @@ const bucketTree = ref(null); // 存储桶树结构
 const cacheStats = ref(null); // 缓存统计
 const viewMode = ref("grid"); // 修改默认为 'grid'，即九宫格模式
 const deletingKeys = ref(new Set()); // 正在删除的文件 key 集合
+const gridResetKey = ref(0); // 虚拟列表滚动重置 key
+
+// 网格视图合并列表（文件夹 → 图片 → 其他文件），用于虚拟列表渲染
+const gridItems = computed(() => {
+  const folders = fileList.value
+    .filter((f) => f.isFolder)
+    .map((f) => ({ ...f, type: "folder" }));
+  const images = fileList.value
+    .filter((f) => !f.isFolder && isImageFile(f.name))
+    .map((f) => ({ ...f, type: "image" }));
+  const others = fileList.value
+    .filter((f) => !f.isFolder && !isImageFile(f.name))
+    .map((f) => ({ ...f, type: "other" }));
+  return [...folders, ...images, ...others];
+});
+
+// URL 懒加载：仅为可见范围的图片生成/加载 URL
+const loadedUrlKeys = ref(new Set()); // 已加载过 URL 的 key 集合
+const handleVisibleChange = async ({ startIdx, endIdx }) => {
+  const visibleRange = gridItems.value.slice(startIdx, endIdx);
+  const imageItems = visibleRange.filter(
+    (item) => item.type === "image" && !loadedUrlKeys.value.has(item.key)
+  );
+
+  if (imageItems.length === 0) return;
+
+  // 标记为已加载，避免重复请求
+  imageItems.forEach((item) => loadedUrlKeys.value.add(item.key));
+
+  // 从 per-bucket 配置读取自定义域名
+  const bucketConfig = store.state.bucketConfigs?.[currentBucket.value];
+  const customDomain = bucketConfig?.customDomain?.trim().replace(/\/+$/, "");
+
+  if (customDomain) {
+    // 自定义域名：直接拼接 URL，无需签名
+    imageItems.forEach((item) => {
+      if (!fileUrlCache.value[item.key]) {
+        fileUrlCache.value[item.key] = `${customDomain}/${item.key}`;
+      }
+    });
+    cacheService.saveFileUrls(fileUrlCache.value);
+  } else {
+    // 签名 URL：按批次异步生成
+    await Promise.all(
+      imageItems.map(async (item) => {
+        try {
+          if (!fileUrlCache.value[item.key]) {
+            const url = await s3Service.getSignedUrl(item.key, 3600 * 24);
+            fileUrlCache.value[item.key] = url;
+          }
+        } catch (error) {
+          console.error(`获取文件 ${item.key} 的 URL 失败:`, error);
+        }
+      })
+    );
+    cacheService.saveFileUrls(fileUrlCache.value);
+  }
+};
+
+// 快速加载自定义域名 URL（仅拼接，无需签名）
+const loadCustomDomainUrls = () => {
+  const bucketConfig = store.state.bucketConfigs?.[currentBucket.value];
+  const customDomain = bucketConfig?.customDomain?.trim().replace(/\/+$/, "");
+  if (customDomain) {
+    fileList.value
+      .filter((f) => !f.isFolder && isImageFile(f.name))
+      .forEach((file) => {
+        if (!fileUrlCache.value[file.key]) {
+          fileUrlCache.value[file.key] = `${customDomain}/${file.key}`;
+        }
+      });
+    cacheService.saveFileUrls(fileUrlCache.value);
+  }
+};
 
 // 添加默认占位图
 const placeholderImage = ref(
@@ -489,6 +563,8 @@ const handleBucketChange = async (bucketName) => {
     fileUrlCache.value = {};
     previewUrl.value = "";
     previewImage.value = null;
+    gridResetKey.value++;
+    loadedUrlKeys.value = new Set();
 
     // 重载新桶的数据
     await loadFiles();
@@ -542,6 +618,8 @@ const formatDate = (date) => {
 const navigateTo = (path) => {
   // 标准化路径，但保留结尾的斜杠表示目录
   currentPath.value = path;
+  gridResetKey.value++;
+  loadedUrlKeys.value = new Set(); // 重置懒加载状态
   loadFiles();
 };
 
@@ -553,6 +631,8 @@ const openFolder = (path) => {
   } else {
     currentPath.value = path + "/";
   }
+  gridResetKey.value++;
+  loadedUrlKeys.value = new Set(); // 重置懒加载状态
   loadFiles();
 };
 
@@ -593,22 +673,14 @@ const loadFiles = async () => {
     // 加载 URL 缓存
     fileUrlCache.value = cacheService.loadFileUrls();
 
+    // 自定义域名：快速拼接所有图片 URL（签名 URL 由虚拟列表懒加载）
+    loadCustomDomainUrls();
+
     // 加载树结构
     bucketTree.value = cacheService.getBucketTree();
 
     // 获取缓存统计
     updateCacheStats();
-
-    // 检查是否需要加载缺失的图片 URL
-    const imageFiles = fileList.value.filter(
-      (file) => !file.isFolder && isImageFile(file.name)
-    );
-    const missingUrls = imageFiles.filter((file) => !fileUrlCache.value[file.key]);
-
-    // 如果有缺失的 URL，尝试加载
-    if (missingUrls.length > 0) {
-      await loadThumbnails(fileList.value);
-    }
 
     return;
   }
@@ -644,8 +716,11 @@ const loadFiles = async () => {
     // 保存到本地状态
     cacheTimestamp.value = Date.now();
 
-    // 预加载图片缩略图 URL
-    await loadThumbnails(sortedFiles);
+    // 加载 URL 缓存
+    fileUrlCache.value = cacheService.loadFileUrls();
+
+    // 自定义域名：快速拼接所有图片 URL（签名 URL 由虚拟列表懒加载）
+    loadCustomDomainUrls();
 
     // 更新树结构
     bucketTree.value = cacheService.getBucketTree();
@@ -746,6 +821,13 @@ const refreshFiles = async () => {
 
     // 加载 URL 缓存，而不是清空它
     fileUrlCache.value = cacheService.loadFileUrls();
+
+    // 自定义域名：快速拼接 URL
+    loadCustomDomainUrls();
+
+    // 重置虚拟列表懒加载状态
+    gridResetKey.value++;
+    loadedUrlKeys.value = new Set();
 
     // 获取缓存统计
     updateCacheStats();
@@ -862,6 +944,9 @@ const deleteFile = async (key) => {
       delete fileUrlCache.value[key];
       cacheService.saveFileUrls(fileUrlCache.value);
     }
+
+    // 从懒加载集合中移除
+    loadedUrlKeys.value.delete(key);
 
     // 从当前列表中移除
     fileList.value = fileList.value.filter((file) => file.key !== key);
@@ -1092,6 +1177,13 @@ watch(
 /* 网格视图样式 */
 .grid-view {
   padding: 4px 0; /* 减小上下内边距 */
+}
+
+.grid-count-info {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .grid-card {
