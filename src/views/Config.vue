@@ -47,21 +47,6 @@
           description="您需要在 Cloudflare R2 控制台中为此存储桶配置 CORS 设置，以允许从您的网站访问。请参阅下方的配置说明。"
           style="margin-bottom: 16px"
         />
-
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" html-type="submit" :loading="loading">
-              保存配置
-            </a-button>
-            <a-button
-              @click="testConnection"
-              :disabled="!isFormComplete"
-              :loading="testing"
-            >
-              测试连接
-            </a-button>
-          </a-space>
-        </a-form-item>
       </a-form>
     </a-card>
 
@@ -157,6 +142,17 @@
         </a-form-item>
       </a-form>
     </a-card>
+
+    <a-form-item>
+      <a-space>
+        <a-button type="primary" html-type="submit" :loading="loading">
+          保存配置
+        </a-button>
+        <a-button @click="testConnection" :disabled="!isFormComplete" :loading="testing">
+          测试连接
+        </a-button>
+      </a-space>
+    </a-form-item>
 
     <div class="config-help">
       <a-typography-title :level="4"
