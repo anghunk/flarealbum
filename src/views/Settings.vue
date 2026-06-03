@@ -1,9 +1,6 @@
 <template>
   <div class="settings-container">
-    <a-page-header
-      title="我的设置"
-      sub-title="个性化您的FlareAlbum体验"
-    />
+    <a-page-header title="我的设置" />
 
     <a-card title="通用设置">
       <a-form layout="vertical">
@@ -22,10 +19,18 @@
             @change="handleTemplateChange"
             allowClear
           >
-            <a-select-option value="{year}/{month}/{day}">{year}/{month}/{day}（按年月日）</a-select-option>
-            <a-select-option value="{year}/{month}">{year}/{month}（按年月）</a-select-option>
-            <a-select-option value="{year}/{month}/{day}/uploads">{year}/{month}/{day}/uploads</a-select-option>
-            <a-select-option value="{year}/{month}/{day}/{timestamp}">{year}/{month}/{day}/{timestamp}</a-select-option>
+            <a-select-option value="{year}/{month}/{day}"
+              >{year}/{month}/{day}（按年月日）</a-select-option
+            >
+            <a-select-option value="{year}/{month}"
+              >{year}/{month}（按年月）</a-select-option
+            >
+            <a-select-option value="{year}/{month}/{day}/uploads"
+              >{year}/{month}/{day}/uploads</a-select-option
+            >
+            <a-select-option value="{year}/{month}/{day}/{timestamp}"
+              >{year}/{month}/{day}/{timestamp}</a-select-option
+            >
             <a-select-option value="custom">自定义...</a-select-option>
           </a-select>
           <a-input
@@ -83,11 +88,12 @@
             :marks="{
               50: '50%',
               75: '75%',
-              100: '100%'
+              100: '100%',
             }"
           />
           <div class="setting-tip">
-            调整 WebP 转换的质量，数值越高质量越好，但文件越大。推荐 75%-85% 的设置可以平衡质量和体积。
+            调整 WebP 转换的质量，数值越高质量越好，但文件越大。推荐 75%-85%
+            的设置可以平衡质量和体积。
           </div>
         </a-form-item>
 
@@ -109,9 +115,7 @@
           message="清除配置会删除您存储的所有设置和上传历史"
         />
 
-        <a-button danger @click="showClearDataConfirm">
-          清除所有数据
-        </a-button>
+        <a-button danger @click="showClearDataConfirm"> 清除所有数据 </a-button>
       </a-space>
     </a-card>
 
@@ -119,7 +123,8 @@
       <a-typography>
         <a-typography-title :level="4">FlareAlbum</a-typography-title>
         <a-typography-paragraph>
-          这是一个基于 Vue3 和 Ant Design Vue 构建的图床上传工具，专为 Cloudflare R2 存储设计。通过直观的界面，您可以轻松上传、管理和分享图片。
+          这是一个基于 Vue3 和 Ant Design Vue 构建的图床上传工具，专为 Cloudflare R2
+          存储设计。通过直观的界面，您可以轻松上传、管理和分享图片。
         </a-typography-paragraph>
         <a-typography-paragraph>
           <ul>
@@ -142,59 +147,59 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
-import { useStore } from 'vuex'
-import s3Service from '../services/s3Service'
-import cacheService from '../services/cacheService'
-import { resolvePathTemplate } from '../utils/pathTemplate'
+import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { message, Modal } from "ant-design-vue";
+import { useStore } from "vuex";
+import s3Service from "../services/s3Service";
+import cacheService from "../services/cacheService";
+import { resolvePathTemplate } from "../utils/pathTemplate";
 
-const router = useRouter()
-const store = useStore()
+const router = useRouter();
+const store = useStore();
 
 // 设置项（移除了 customDomainPrefix）
-const copyFormat = ref('url')
-const uploadPathTemplate = ref('')
-const customUploadPathTemplate = ref('')
-const uploadPathPrefix = ref('')
-const defaultFileNameOption = ref('original')
-const autoCopy = ref(true)
-const convertToWebp = ref(false)
-const webpQuality = ref(75)
+const copyFormat = ref("url");
+const uploadPathTemplate = ref("");
+const customUploadPathTemplate = ref("");
+const uploadPathPrefix = ref("");
+const defaultFileNameOption = ref("original");
+const autoCopy = ref(true);
+const convertToWebp = ref(false);
+const webpQuality = ref(80);
 
 // 处理模板选择变化
 const handleTemplateChange = (value) => {
-  if (value !== 'custom') {
-    customUploadPathTemplate.value = ''
+  if (value !== "custom") {
+    customUploadPathTemplate.value = "";
   }
-}
+};
 
 // 获取当前模板的示例
 const getTemplateExample = () => {
-  let template = uploadPathTemplate.value
-  if (template === 'custom') {
-    template = customUploadPathTemplate.value
+  let template = uploadPathTemplate.value;
+  if (template === "custom") {
+    template = customUploadPathTemplate.value;
   }
-  if (!template) return '根目录'
-  return resolvePathTemplate(template) || '根目录'
-}
+  if (!template) return "根目录";
+  return resolvePathTemplate(template) || "根目录";
+};
 
 // 获取最终路径示例
 const getFinalPathExample = () => {
-  let template = uploadPathTemplate.value
-  if (template === 'custom') {
-    template = customUploadPathTemplate.value
+  let template = uploadPathTemplate.value;
+  if (template === "custom") {
+    template = customUploadPathTemplate.value;
   }
-  const resolved = resolvePathTemplate(template || '')
-  const prefix = uploadPathPrefix.value ? uploadPathPrefix.value + '/' : ''
-  const basePath = prefix + resolved
-  return basePath ? basePath + '/' : '根目录' + '/'
-}
+  const resolved = resolvePathTemplate(template || "");
+  const prefix = uploadPathPrefix.value ? uploadPathPrefix.value + "/" : "";
+  const basePath = prefix + resolved;
+  return basePath ? basePath + "/" : "根目录" + "/";
+};
 
 // 保存设置（不再包含 customDomainPrefix）
 const saveSettings = () => {
-  const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, '')
+  const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, "");
 
   const settings = {
     copyFormat: copyFormat.value,
@@ -204,98 +209,99 @@ const saveSettings = () => {
     defaultFileNameOption: defaultFileNameOption.value,
     autoCopy: autoCopy.value,
     convertToWebp: convertToWebp.value,
-    webpQuality: webpQuality.value
-  }
+    webpQuality: webpQuality.value,
+  };
 
   // 使用 Vuex store action 保存设置
-  store.dispatch('saveUserSettings', settings).then(() => {
-    message.success('设置已保存并生效')
-  })
-}
+  store.dispatch("saveUserSettings", settings).then(() => {
+    message.success("设置已保存并生效");
+  });
+};
 
 // 显示清除数据确认
 const showClearDataConfirm = () => {
   Modal.confirm({
-    title: '确定要清除所有数据吗？',
-    content: '这将删除您的所有配置和上传历史记录，此操作不可恢复。',
-    okText: '确定清除',
-    okType: 'danger',
-    cancelText: '取消',
+    title: "确定要清除所有数据吗？",
+    content: "这将删除您的所有配置和上传历史记录，此操作不可恢复。",
+    okText: "确定清除",
+    okType: "danger",
+    cancelText: "取消",
     onOk() {
-      clearAllData()
-    }
-  })
-}
+      clearAllData();
+    },
+  });
+};
 
 // 清除所有数据
 const clearAllData = () => {
-  store.commit('setS3Config', null)
-  store.commit('setUserSettings', null)
+  store.commit("setS3Config", null);
+  store.commit("setUserSettings", null);
 
-  localStorage.removeItem('s3ConfigData')
-  localStorage.removeItem('userSettings')
-  localStorage.removeItem('recentUploads')
+  localStorage.removeItem("s3ConfigData");
+  localStorage.removeItem("userSettings");
+  localStorage.removeItem("recentUploads");
 
-  cacheService.clearAllCache()
+  cacheService.clearAllCache();
 
-  message.success('所有数据已清除')
+  message.success("所有数据已清除");
 
   setTimeout(() => {
-    router.push('/upload')
-    window.location.reload()
-  }, 1000)
-}
+    router.push("/upload");
+    window.location.reload();
+  }, 1000);
+};
 
 // 组件挂载时加载设置
 onMounted(() => {
-  const storeSettings = store.state.userSettings
+  const storeSettings = store.state.userSettings;
 
   const loadSettings = (settings) => {
-    copyFormat.value = settings.copyFormat || 'url'
-    uploadPathTemplate.value = settings.uploadPathTemplate || ''
-    customUploadPathTemplate.value = settings.customUploadPathTemplate || ''
-    uploadPathPrefix.value = settings.uploadPathPrefix || ''
-    defaultFileNameOption.value = settings.defaultFileNameOption || 'original'
-    autoCopy.value = settings.autoCopy !== undefined ? settings.autoCopy : true
-    convertToWebp.value = settings.convertToWebp !== undefined ? settings.convertToWebp : false
-    webpQuality.value = settings.webpQuality || 75
+    copyFormat.value = settings.copyFormat || "url";
+    uploadPathTemplate.value = settings.uploadPathTemplate || "";
+    customUploadPathTemplate.value = settings.customUploadPathTemplate || "";
+    uploadPathPrefix.value = settings.uploadPathPrefix || "";
+    defaultFileNameOption.value = settings.defaultFileNameOption || "original";
+    autoCopy.value = settings.autoCopy !== undefined ? settings.autoCopy : true;
+    convertToWebp.value =
+      settings.convertToWebp !== undefined ? settings.convertToWebp : false;
+    webpQuality.value = settings.webpQuality || 75;
 
     // 向后兼容：如果旧数据有 customDomainPrefix，迁移到桶配置中
     if (settings.customDomainPrefix) {
-      const bucketConfigs = store.state.bucketConfigs || {}
-      const currentBucket = store.state.currentBucket || Object.keys(bucketConfigs)[0]
+      const bucketConfigs = store.state.bucketConfigs || {};
+      const currentBucket = store.state.currentBucket || Object.keys(bucketConfigs)[0];
       if (currentBucket && bucketConfigs[currentBucket]) {
         if (!bucketConfigs[currentBucket].customDomain) {
-          store.dispatch('updateBucketCustomDomain', {
+          store.dispatch("updateBucketCustomDomain", {
             bucketName: currentBucket,
-            customDomain: settings.customDomainPrefix.trim().replace(/\/+$/, '')
-          })
+            customDomain: settings.customDomainPrefix.trim().replace(/\/+$/, ""),
+          });
         }
       }
     }
-  }
+  };
 
   if (storeSettings) {
-    loadSettings(storeSettings)
+    loadSettings(storeSettings);
   } else {
-    const cachedSettings = cacheService.loadUserSettings()
+    const cachedSettings = cacheService.loadUserSettings();
     if (cachedSettings) {
-      loadSettings(cachedSettings)
-      store.commit('setUserSettings', cachedSettings)
+      loadSettings(cachedSettings);
+      store.commit("setUserSettings", cachedSettings);
     } else {
-      const storedSettings = localStorage.getItem('userSettings')
+      const storedSettings = localStorage.getItem("userSettings");
       if (storedSettings) {
         try {
-          const settings = JSON.parse(storedSettings)
-          loadSettings(settings)
-          store.commit('setUserSettings', settings)
+          const settings = JSON.parse(storedSettings);
+          loadSettings(settings);
+          store.commit("setUserSettings", settings);
         } catch (e) {
-          console.error('无法解析存储的设置：', e)
+          console.error("无法解析存储的设置：", e);
         }
       }
     }
   }
-})
+});
 </script>
 
 <style scoped>

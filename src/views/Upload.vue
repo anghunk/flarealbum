@@ -1,6 +1,6 @@
 <template>
   <div class="upload-container">
-    <a-page-header title="图片上传" sub-title="上传图片到FlareAlbum" :backIcon="false">
+    <a-page-header title="图片上传" :backIcon="false">
     </a-page-header>
 
     <!-- 侧边树状结构 -->
