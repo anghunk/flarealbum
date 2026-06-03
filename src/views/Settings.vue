@@ -4,7 +4,7 @@
       title="我的设置"
       sub-title="个性化您的FlareAlbum体验"
     />
-    
+
     <a-card title="通用设置">
       <a-form layout="vertical">
         <a-form-item label="默认复制格式">
@@ -14,7 +14,7 @@
             <a-radio value="html">HTML 格式</a-radio>
           </a-radio-group>
         </a-form-item>
-        
+
         <a-form-item label="上传路径模板">
           <a-select
             v-model:value="uploadPathTemplate"
@@ -49,23 +49,15 @@
             最终路径示例：<a-tag color="green">{{ getFinalPathExample() }}</a-tag>
           </div>
         </a-form-item>
-        
-        <a-form-item label="自定义域名前缀">
-          <a-input 
-            v-model:value="customDomainPrefix"
-            placeholder="例如: https://cdn.example.com"
-            addonAfter="/"
-          >
-            <template #prefix>
-              <info-circle-outlined />
-            </template>
-          </a-input>
-          <div class="setting-tip">
-            设置后，生成的图片链接将使用此域名替代默认的 R2 存储 URL。
-            <a-tag v-if="customDomainPrefix" color="success">示例：{{ getExampleUrl() }}</a-tag>
-          </div>
-        </a-form-item>
-        
+
+        <a-alert
+          type="info"
+          show-icon
+          message="自定义域名设置已迁移"
+          description="自定义域名现在可以在「S3 配置」页面中为每个存储桶单独设置，支持不同存储桶使用不同的域名。"
+          style="margin-bottom: 16px"
+        />
+
         <a-form-item label="默认文件名处理">
           <a-radio-group v-model:value="defaultFileNameOption">
             <a-radio value="original">保留原始文件名</a-radio>
@@ -73,7 +65,7 @@
             <a-radio value="uuid">使用 UUID 替换</a-radio>
           </a-radio-group>
         </a-form-item>
-        
+
         <a-form-item label="图片自动转换为WebP格式">
           <a-switch v-model:checked="convertToWebp" />
           <div class="setting-tip">
@@ -81,12 +73,12 @@
             <a-tag v-if="convertToWebp" color="success">体积减小约 30-70%</a-tag>
           </div>
         </a-form-item>
-        
+
         <a-form-item label="WebP质量设置" v-if="convertToWebp">
-          <a-slider 
-            v-model:value="webpQuality" 
-            :min="50" 
-            :max="100" 
+          <a-slider
+            v-model:value="webpQuality"
+            :min="50"
+            :max="100"
             :step="5"
             :marks="{
               50: '50%',
@@ -98,31 +90,31 @@
             调整 WebP 转换的质量，数值越高质量越好，但文件越大。推荐 75%-85% 的设置可以平衡质量和体积。
           </div>
         </a-form-item>
-        
+
         <a-form-item label="自动复制上传后的链接">
           <a-switch v-model:checked="autoCopy" />
         </a-form-item>
-        
+
         <a-form-item>
           <a-button type="primary" @click="saveSettings">保存设置</a-button>
         </a-form-item>
       </a-form>
     </a-card>
-    
+
     <a-card title="数据管理" style="margin-top: 16px">
       <a-space direction="vertical" style="width: 100%">
-        <a-alert 
-          type="info" 
+        <a-alert
+          type="info"
           show-icon
           message="清除配置会删除您存储的所有设置和上传历史"
         />
-        
+
         <a-button danger @click="showClearDataConfirm">
           清除所有数据
         </a-button>
       </a-space>
     </a-card>
-    
+
     <a-card title="关于" style="margin-top: 16px">
       <a-typography>
         <a-typography-title :level="4">FlareAlbum</a-typography-title>
@@ -135,7 +127,7 @@
             <li>支持管理 R2 存储中的文件</li>
             <li>支持文件夹管理</li>
             <li>支持预览和分享图片</li>
-            <li>支持自定义域名前缀</li>
+            <li>支持为每个存储桶单独设置自定义域名</li>
           </ul>
         </a-typography-paragraph>
         <a-typography-paragraph>
@@ -154,7 +146,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { useStore } from 'vuex'
-import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import s3Service from '../services/s3Service'
 import cacheService from '../services/cacheService'
 import { resolvePathTemplate } from '../utils/pathTemplate'
@@ -162,14 +153,13 @@ import { resolvePathTemplate } from '../utils/pathTemplate'
 const router = useRouter()
 const store = useStore()
 
-// 设置项
+// 设置项（移除了 customDomainPrefix）
 const copyFormat = ref('url')
-const uploadPathTemplate = ref('') // 路径模板，如 {year}/{month}/{day}
-const customUploadPathTemplate = ref('') // 自定义模板内容
-const uploadPathPrefix = ref('') // 路径前缀，添加在模板结果之前
+const uploadPathTemplate = ref('')
+const customUploadPathTemplate = ref('')
+const uploadPathPrefix = ref('')
 const defaultFileNameOption = ref('original')
 const autoCopy = ref(true)
-const customDomainPrefix = ref('') // 新增自定义域名前缀
 const convertToWebp = ref(false)
 const webpQuality = ref(75)
 
@@ -202,34 +192,8 @@ const getFinalPathExample = () => {
   return basePath ? basePath + '/' : '根目录' + '/'
 }
 
-// 生成示例 URL
-const getExampleUrl = () => {
-  const domain = customDomainPrefix.value.trim().replace(/\/+$/, '')
-  const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, '')
-  let template = uploadPathTemplate.value
-  if (template === 'custom') {
-    template = customUploadPathTemplate.value
-  }
-  const resolvedPath = template ? resolvePathTemplate(template) : ''
-  const basePath = prefix ? prefix + '/' + resolvedPath : resolvedPath
-  const filename = 'example.jpg'
-
-  if (domain) {
-    if (basePath) {
-      return `${domain}/${basePath}/${filename}`
-    } else {
-      return `${domain}/${filename}`
-    }
-  } else {
-    return 'https://your-r2.example.com/example.jpg'
-  }
-}
-
-// 保存设置
+// 保存设置（不再包含 customDomainPrefix）
 const saveSettings = () => {
-  // 处理域名前缀，移除结尾的斜杠
-  const domain = customDomainPrefix.value.trim().replace(/\/+$/, '')
-  // 处理路径前缀，移除结尾的斜杠
   const prefix = uploadPathPrefix.value.trim().replace(/^\/+|\/+$/g, '')
 
   const settings = {
@@ -239,7 +203,6 @@ const saveSettings = () => {
     uploadPathPrefix: prefix,
     defaultFileNameOption: defaultFileNameOption.value,
     autoCopy: autoCopy.value,
-    customDomainPrefix: domain,
     convertToWebp: convertToWebp.value,
     webpQuality: webpQuality.value
   }
@@ -266,80 +229,65 @@ const showClearDataConfirm = () => {
 
 // 清除所有数据
 const clearAllData = () => {
-  // 清除 Vuex 中的状态
   store.commit('setS3Config', null)
   store.commit('setUserSettings', null)
-  
-  // 清除 localStorage 中的数据
+
   localStorage.removeItem('s3ConfigData')
   localStorage.removeItem('userSettings')
   localStorage.removeItem('recentUploads')
-  
-  // 清除 cacheService 缓存
+
   cacheService.clearAllCache()
-  
+
   message.success('所有数据已清除')
-  
-  // 重定向到上传页面
+
   setTimeout(() => {
     router.push('/upload')
-    // 刷新页面以确保状态重置
     window.location.reload()
   }, 1000)
 }
 
 // 组件挂载时加载设置
 onMounted(() => {
-  // 从 Vuex 获取设置
   const storeSettings = store.state.userSettings
 
+  const loadSettings = (settings) => {
+    copyFormat.value = settings.copyFormat || 'url'
+    uploadPathTemplate.value = settings.uploadPathTemplate || ''
+    customUploadPathTemplate.value = settings.customUploadPathTemplate || ''
+    uploadPathPrefix.value = settings.uploadPathPrefix || ''
+    defaultFileNameOption.value = settings.defaultFileNameOption || 'original'
+    autoCopy.value = settings.autoCopy !== undefined ? settings.autoCopy : true
+    convertToWebp.value = settings.convertToWebp !== undefined ? settings.convertToWebp : false
+    webpQuality.value = settings.webpQuality || 75
+
+    // 向后兼容：如果旧数据有 customDomainPrefix，迁移到桶配置中
+    if (settings.customDomainPrefix) {
+      const bucketConfigs = store.state.bucketConfigs || {}
+      const currentBucket = store.state.currentBucket || Object.keys(bucketConfigs)[0]
+      if (currentBucket && bucketConfigs[currentBucket]) {
+        if (!bucketConfigs[currentBucket].customDomain) {
+          store.dispatch('updateBucketCustomDomain', {
+            bucketName: currentBucket,
+            customDomain: settings.customDomainPrefix.trim().replace(/\/+$/, '')
+          })
+        }
+      }
+    }
+  }
+
   if (storeSettings) {
-    // 如果 store 中有设置，使用 store 中的设置
-    copyFormat.value = storeSettings.copyFormat || 'url'
-    uploadPathTemplate.value = storeSettings.uploadPathTemplate || ''
-    customUploadPathTemplate.value = storeSettings.customUploadPathTemplate || ''
-    uploadPathPrefix.value = storeSettings.uploadPathPrefix || ''
-    defaultFileNameOption.value = storeSettings.defaultFileNameOption || 'original'
-    autoCopy.value = storeSettings.autoCopy !== undefined ? storeSettings.autoCopy : true
-    customDomainPrefix.value = storeSettings.customDomainPrefix || ''
-    convertToWebp.value = storeSettings.convertToWebp !== undefined ? storeSettings.convertToWebp : false
-    webpQuality.value = storeSettings.webpQuality || 75
+    loadSettings(storeSettings)
   } else {
-    // 尝试从 cacheService 加载
     const cachedSettings = cacheService.loadUserSettings()
-
     if (cachedSettings) {
-      copyFormat.value = cachedSettings.copyFormat || 'url'
-      uploadPathTemplate.value = cachedSettings.uploadPathTemplate || ''
-      customUploadPathTemplate.value = cachedSettings.customUploadPathTemplate || ''
-      uploadPathPrefix.value = cachedSettings.uploadPathPrefix || ''
-      defaultFileNameOption.value = cachedSettings.defaultFileNameOption || 'original'
-      autoCopy.value = cachedSettings.autoCopy !== undefined ? cachedSettings.autoCopy : true
-      customDomainPrefix.value = cachedSettings.customDomainPrefix || ''
-      convertToWebp.value = cachedSettings.convertToWebp !== undefined ? cachedSettings.convertToWebp : false
-      webpQuality.value = cachedSettings.webpQuality || 75
-
-      // 同步到 Vuex
+      loadSettings(cachedSettings)
       store.commit('setUserSettings', cachedSettings)
     } else {
-      // 最后尝试从 localStorage 加载（兼容旧版本）
       const storedSettings = localStorage.getItem('userSettings')
-
       if (storedSettings) {
         try {
           const settings = JSON.parse(storedSettings)
-          copyFormat.value = settings.copyFormat || 'url'
-          // 兼容旧的 defaultUploadPath 设置
-          uploadPathTemplate.value = settings.uploadPathTemplate || ''
-          customUploadPathTemplate.value = settings.customUploadPathTemplate || ''
-          uploadPathPrefix.value = settings.uploadPathPrefix || settings.defaultUploadPath || ''
-          defaultFileNameOption.value = settings.defaultFileNameOption || 'original'
-          autoCopy.value = settings.autoCopy !== undefined ? settings.autoCopy : true
-          customDomainPrefix.value = settings.customDomainPrefix || ''
-          convertToWebp.value = settings.convertToWebp !== undefined ? settings.convertToWebp : false
-          webpQuality.value = settings.webpQuality || 75
-
-          // 同步到 Vuex
+          loadSettings(settings)
           store.commit('setUserSettings', settings)
         } catch (e) {
           console.error('无法解析存储的设置：', e)
@@ -351,13 +299,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-container {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
 .setting-tip {
-  color: #666;
+  color: var(--color-text-secondary);
   font-size: 12px;
   margin-top: 4px;
 }

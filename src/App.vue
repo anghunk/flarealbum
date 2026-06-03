@@ -46,13 +46,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <a-layout style="min-height: 100vh; background: #f0f2f5;">
+  <a-layout style="min-height: 100vh; background: var(--color-bg);">
     <!-- 侧边菜单 -->
     <a-layout-sider
       breakpoint="lg"
       collapsible
       width="220"
-      style="overflow: auto; height: 100vh; position: fixed; left: 0; box-shadow: 2px 0 8px rgba(0,0,0,0.06);"
+      style="overflow: auto; height: 100vh; position: fixed; left: 0; border-right: 1px solid var(--color-border);"
       v-model:collapsed="collapsed"
       @collapse="onCollapse"
       theme="light"
@@ -85,18 +85,18 @@ onMounted(() => {
       </a-menu>
     </a-layout-sider>
 
-    <a-layout :style="{ marginLeft: collapsed ? '80px' : '220px', transition: 'all 0.2s' }">
+    <a-layout :style="{ marginLeft: collapsed ? '80px' : '220px' }">
       <!-- 主要内容区域 -->
       <a-layout-content
         ref="contentRef"
         style="margin: 16px; overflow: auto;"
       >
-        <div style="padding: 24px; background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+        <div style="padding: 24px;">
           <router-view />
         </div>
       </a-layout-content>
 
-      <a-layout-footer style="text-align: center; color: #999; background: transparent;">
+      <a-layout-footer style="text-align: center; color: var(--color-text-muted); background: transparent;">
         FlareAlbum ©2025 By <a href="https://github.com/ezyshu/flarealbum" target="_blank">ezyshu</a>
       </a-layout-footer>
     </a-layout>
@@ -107,18 +107,13 @@ onMounted(() => {
 .logo {
   height: 48px;
   margin: 16px;
-  color: #1a1a2e;
   font-size: 18px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  border-radius: 8px;
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
 }
 
 .logo-collapsed {

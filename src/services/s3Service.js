@@ -1,12 +1,11 @@
-import { 
-  S3Client, 
-  ListObjectsV2Command, 
+import {
+  S3Client,
+  ListObjectsV2Command,
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { useStore } from 'vuex'
 
 class S3Service {
   constructor(config) {
@@ -32,8 +31,6 @@ class S3Service {
   // 简单加密配置，用于本地存储（仅基础保护）
   encryptConfig(config) {
     try {
-      // 注意：这不是真正的加密，只是简单的编码
-      // 生产环境应使用更安全的加密方法
       const jsonStr = JSON.stringify(config)
       return btoa(jsonStr)
     } catch (e) {
@@ -45,7 +42,6 @@ class S3Service {
   // 解密配置
   decryptConfig(encryptedData) {
     try {
-      // 解码
       const jsonStr = atob(encryptedData)
       return JSON.parse(jsonStr)
     } catch (e) {
@@ -74,7 +70,24 @@ class S3Service {
     try {
       const encrypted = localStorage.getItem('s3ConfigData')
       if (encrypted) {
-        return this.decryptConfig(encrypted)
+        const config = this.decryptConfig(encrypted)
+        // 向后兼容迁移：确保 bucketConfigs 存在
+        if (config) {
+          if (!config.bucketConfigs) {
+            config.bucketConfigs = {}
+            if (config.buckets && config.buckets.length > 0) {
+              config.buckets.forEach(name => {
+                config.bucketConfigs[name] = { customDomain: '' }
+              })
+            } else if (config.bucket) {
+              config.bucketConfigs[config.bucket] = { customDomain: '' }
+            }
+          }
+          if (!config.currentBucket) {
+            config.currentBucket = config.bucket || Object.keys(config.bucketConfigs)[0] || ''
+          }
+        }
+        return config
       }
       return null
     } catch (e) {
@@ -83,10 +96,44 @@ class S3Service {
     }
   }
 
-  // 获取用户设置中的自定义域名前缀
-  getCustomDomainPrefix() {
+  // 测试指定存储桶的连通性
+  async testBucket(bucketName) {
+    if (!this.client) {
+      throw new Error('S3 客户端未初始化，请先配置存储')
+    }
     try {
-      // 尝试从 localStorage 获取用户设置
+      const command = new ListObjectsV2Command({
+        Bucket: bucketName,
+        MaxKeys: 1
+      })
+      await this.client.send(command)
+      return { success: true, bucketName }
+    } catch (error) {
+      return { success: false, bucketName, error: error.message }
+    }
+  }
+
+  // 切换当前活动的存储桶（无需重建客户端）
+  switchBucket(bucketName) {
+    if (!this.config) {
+      throw new Error('S3 服务未初始化，请先配置存储')
+    }
+
+    this.config.currentBucket = bucketName
+    this.saveConfigToStorage(this.config)
+
+    return true
+  }
+
+  // 获取当前桶的自定义域名前缀
+  getCustomDomainPrefix(bucketName) {
+    const bucket = bucketName || this.config?.currentBucket
+    // 优先从 bucketConfigs 读取
+    if (bucket && this.config?.bucketConfigs?.[bucket]?.customDomain) {
+      return this.config.bucketConfigs[bucket].customDomain.trim().replace(/\/+$/, '')
+    }
+    // 向后兼容：尝试从旧的全局 userSettings 读取
+    try {
       const settingsStr = localStorage.getItem('userSettings')
       if (settingsStr) {
         const settings = JSON.parse(settingsStr)
@@ -94,11 +141,10 @@ class S3Service {
           return settings.customDomainPrefix.trim().replace(/\/+$/, '')
         }
       }
-      return null
     } catch (e) {
-      console.error('获取自定义域名前缀失败', e)
-      return null
+      // 忽略
     }
+    return null
   }
 
   async listObjects(prefix = '') {
@@ -109,18 +155,17 @@ class S3Service {
     try {
       // 标准化前缀，避免双斜杠问题
       const normalizedPrefix = prefix.replace(/\/+/g, '/').replace(/^\//, '')
-      
+
       const command = new ListObjectsV2Command({
-        Bucket: this.config.bucket,
+        Bucket: this.config.currentBucket,
         Prefix: normalizedPrefix,
         Delimiter: '/'
       })
-      
+
       const response = await this.client.send(command)
-      
+
       // 处理文件夹
       const folders = (response.CommonPrefixes || []).map(prefix => {
-        // 确保前缀中没有重复的斜杠
         const normalizedPrefix = prefix.Prefix.replace(/\/+/g, '/');
         return {
           key: normalizedPrefix,
@@ -130,10 +175,10 @@ class S3Service {
           lastModified: null
         };
       })
-      
+
       // 处理文件
       const files = (response.Contents || [])
-        .filter(item => item.Key !== normalizedPrefix) // 过滤掉当前前缀
+        .filter(item => item.Key !== normalizedPrefix)
         .map(item => ({
           key: item.Key,
           name: item.Key.split('/').pop(),
@@ -141,49 +186,45 @@ class S3Service {
           size: item.Size,
           lastModified: item.LastModified
         }))
-      
+
       return [...folders, ...files]
     } catch (error) {
       console.error('列出对象失败：', error)
       throw error
     }
   }
-  
+
   async uploadFile(file, key) {
     if (!this.client) {
       throw new Error('S3 客户端未初始化，请先配置存储')
     }
-    
-    // 如果没有提供 key，则使用文件名
+
     if (!key) {
       key = file.name
     }
-    
+
     try {
-      // 将 File 对象转换为 ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
-      
+
       const command = new PutObjectCommand({
-        Bucket: this.config.bucket,
+        Bucket: this.config.currentBucket,
         Key: key,
         Body: new Uint8Array(arrayBuffer),
         ContentType: file.type
       })
-      
+
       const response = await this.client.send(command)
-      
+
       // 构建文件 URL，优先使用自定义域名前缀
       const customDomain = this.getCustomDomainPrefix()
       let fileUrl
-      
+
       if (customDomain) {
-        // 使用自定义域名
         fileUrl = `${customDomain}/${key}`
       } else {
-        // 使用默认 R2 URL
-        fileUrl = `${this.config.endpoint}/${this.config.bucket}/${key}`
+        fileUrl = `${this.config.endpoint}/${this.config.currentBucket}/${key}`
       }
-      
+
       return {
         success: true,
         key,
@@ -195,20 +236,20 @@ class S3Service {
       throw error
     }
   }
-  
+
   async deleteObject(key) {
     if (!this.client) {
       throw new Error('S3 客户端未初始化，请先配置存储')
     }
-    
+
     try {
       const command = new DeleteObjectCommand({
-        Bucket: this.config.bucket,
+        Bucket: this.config.currentBucket,
         Key: key
       })
-      
+
       const response = await this.client.send(command)
-      
+
       return {
         success: true,
         key,
@@ -219,33 +260,30 @@ class S3Service {
       throw error
     }
   }
-  
+
   async getSignedUrl(key, expiresIn = 3600) {
     if (!this.client) {
       throw new Error('S3 客户端未初始化，请先配置存储')
     }
-    
+
     try {
       // 检查是否有自定义域名前缀
       const customDomain = this.getCustomDomainPrefix()
-      
-      // 如果有自定义域名前缀，直接返回自定义 URL
+
       if (customDomain) {
-        // 确保 key 不以/开头，避免双斜杠
         const cleanKey = key.replace(/^\/+/, '')
         return `${customDomain}/${cleanKey}`
       }
-      
-      // 否则生成签名 URL
+
       const command = new GetObjectCommand({
-        Bucket: this.config.bucket,
+        Bucket: this.config.currentBucket,
         Key: key
       })
-      
+
       const signedUrl = await getSignedUrl(this.client, command, {
         expiresIn
       })
-      
+
       return signedUrl
     } catch (error) {
       console.error('获取签名URL失败：', error)
@@ -254,4 +292,4 @@ class S3Service {
   }
 }
 
-export default new S3Service() 
+export default new S3Service()

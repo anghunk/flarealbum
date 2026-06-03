@@ -4,35 +4,59 @@ class CacheService {
     this.CACHE_PREFIX = 'r2_image_hosting_';
     this.CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 延长缓存有效期为 24 小时 (毫秒)
     this.IMAGE_CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 图片 URL 缓存 24 小时
+    this.currentBucket = ''; // 当前活动的存储桶（用于缓存键命名空间）
     this.bucketTree = null; // 存储桶树形结构
     this.allFiles = null; // 存储所有文件的缓存
+
+    // 从配置中初始化 currentBucket
+    const config = this.loadUserConfig();
+    if (config && config.currentBucket) {
+      this.currentBucket = config.currentBucket;
+    } else if (config && config.bucket) {
+      // 向后兼容
+      this.currentBucket = config.bucket;
+    }
+
     this.loadBucketTree(); // 初始化时加载树结构
     this.loadAllFiles(); // 初始化时加载所有文件
   }
 
+  // 获取 bucket 前缀（用于缓存键命名空间）
+  getBucketPrefix() {
+    return this.currentBucket ? `${this.currentBucket}_` : '';
+  }
+
+  // 设置当前活动存储桶
+  setCurrentBucket(bucketName) {
+    this.currentBucket = bucketName;
+    // 重载内存缓存（从新 bucket 的 localStorage 键）
+    this.loadBucketTree();
+    this.loadAllFiles();
+  }
+
   // 获取文件列表缓存键
   getFileListCacheKey(path) {
-    return `${this.CACHE_PREFIX}files_${path}`;
+    return `${this.CACHE_PREFIX}${this.getBucketPrefix()}files_${path}`;
   }
 
   // 获取 URL 缓存键
   getUrlCacheKey() {
-    return `${this.CACHE_PREFIX}urls`;
+    return `${this.CACHE_PREFIX}${this.getBucketPrefix()}urls`;
   }
 
   // 获取时间戳缓存键
   getTimestampKey() {
-    return `${this.CACHE_PREFIX}timestamp`;
+    return `${this.CACHE_PREFIX}${this.getBucketPrefix()}timestamp`;
   }
 
   // 获取存储桶树结构缓存键
   getBucketTreeKey() {
-    return `${this.CACHE_PREFIX}bucket_tree`;
+    return `${this.CACHE_PREFIX}${this.getBucketPrefix()}bucket_tree`;
   }
 
   // 获取所有文件键
   getAllFilesKey() {
-    return `${this.CACHE_PREFIX}all_files`;
+    return `${this.CACHE_PREFIX}${this.getBucketPrefix()}all_files`;
   }
 
   // 获取用户配置缓存键的方法
@@ -398,18 +422,21 @@ class CacheService {
     
     // 预加载图片 URL
     const imageFiles = files.filter(file => !file.isFolder && this.isImageFile(file.name));
-    
-    // 检查是否有自定义域名前缀
-    const userSettings = this.loadUserSettings();
-    const customDomain = userSettings?.customDomainPrefix?.trim().replace(/\/+$/, '');
+
+    // 检查是否有自定义域名前缀（从 per-bucket 配置读取）
+    const bucketConfigs = s3Service.config?.bucketConfigs
+    const currentBucket = s3Service.config?.currentBucket
+    const customDomain = bucketConfigs?.[currentBucket]?.customDomain?.trim().replace(/\/+$/, '')
+    // 向后兼容：如果桶配置中没有，尝试从旧的全局 userSettings 读取
+    const fallbackDomain = !customDomain ? (this.loadUserSettings()?.customDomainPrefix?.trim().replace(/\/+$/, '') || null) : null
+    const effectiveDomain = customDomain || fallbackDomain
     
     // 如果有自定义域名前缀，直接使用它构建 URL
-    if (customDomain) {
+    if (effectiveDomain) {
       imageFiles.forEach(file => {
         if (!fileUrlCache[file.key]) {
-          // 确保 key 不以/开头，避免双斜杠
           const cleanKey = file.key.replace(/^\/+/, '');
-          fileUrlCache[file.key] = `${customDomain}/${cleanKey}`;
+          fileUrlCache[file.key] = `${effectiveDomain}/${cleanKey}`;
         }
       });
     } else {
@@ -518,7 +545,25 @@ class CacheService {
   loadUserConfig() {
     try {
       const cachedConfig = localStorage.getItem(this.getUserConfigKey());
-      return cachedConfig ? JSON.parse(cachedConfig) : null;
+      if (cachedConfig) {
+        const config = JSON.parse(cachedConfig);
+        // 向后兼容迁移：确保 bucketConfigs 存在
+        if (config && !config.bucketConfigs) {
+          config.bucketConfigs = {};
+          if (config.buckets && config.buckets.length > 0) {
+            config.buckets.forEach(name => {
+              config.bucketConfigs[name] = { customDomain: '' }
+            })
+          } else if (config.bucket) {
+            config.bucketConfigs[config.bucket] = { customDomain: '' }
+          }
+        }
+        if (config && !config.currentBucket) {
+          config.currentBucket = config.bucket || Object.keys(config.bucketConfigs)[0] || ''
+        }
+        return config;
+      }
+      return null;
     } catch (error) {
       console.error('加载用户配置失败：', error);
       return null;
@@ -548,6 +593,35 @@ class CacheService {
     } catch (error) {
       console.error('加载用户设置失败：', error);
       return null;
+    }
+  }
+
+  // 清除指定存储桶的缓存
+  clearBucketCache(bucketName) {
+    try {
+      const bucketPrefix = bucketName ? `${bucketName}_` : '';
+      const fullPrefix = `${this.CACHE_PREFIX}${bucketPrefix}`;
+
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(fullPrefix) &&
+            !key.includes('user_config') &&
+            !key.includes('user_settings')) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      // 如果清除的是当前桶，重置内存缓存
+      if (bucketName === this.currentBucket || !bucketName) {
+        this.bucketTree = {
+          name: 'root',
+          path: '',
+          children: [],
+          files: []
+        };
+        this.allFiles = [];
+      }
+    } catch (error) {
+      console.error('清除存储桶缓存失败：', error);
     }
   }
 

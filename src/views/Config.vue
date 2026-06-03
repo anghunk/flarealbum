@@ -5,15 +5,6 @@
     :backIcon="false"
   />
 
-  <a-alert
-    v-if="configSaved"
-    message="配置已保存"
-    description="您的FlareAlbum已成功连接到Cloudflare R2存储，现在可以开始上传和管理图片了。"
-    type="success"
-    show-icon
-    style="margin-bottom: 16px"
-  />
-
   <div class="config-container">
     <a-card title="S3/R2存储配置" class="config-card">
       <a-form
@@ -37,14 +28,6 @@
             v-model:value="formState.secretAccessKey"
             placeholder="R2 Secret Access Key"
             @blur="() => formRef?.validateFields(['secretAccessKey'])"
-          />
-        </a-form-item>
-
-        <a-form-item name="bucket" label="存储桶名称">
-          <a-input
-            v-model:value="formState.bucket"
-            placeholder="您的存储桶名称"
-            @blur="() => formRef?.validateFields(['bucket'])"
           />
         </a-form-item>
 
@@ -85,6 +68,86 @@
               测试连接
             </a-button>
           </a-space>
+        </a-form-item>
+      </a-form>
+    </a-card>
+
+    <!-- 存储桶管理 -->
+    <a-card
+      title="存储桶管理"
+      class="config-card"
+      v-if="configSaved"
+    >
+      <a-form layout="vertical">
+        
+        <!-- 存储桶列表 -->
+        <a-form-item v-if="Object.keys(formState.bucketConfigs).length > 0" label="已配置的存储桶">
+          <a-table
+            :columns="bucketColumns"
+            :data-source="bucketListData"
+            :pagination="false"
+            row-key="name"
+            size="small"
+            bordered
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.dataIndex === 'name'">
+                <a-radio
+                  :checked="record.name === formState.currentBucket"
+                  @change="setCurrentBucket(record.name)"
+                >
+                  {{ record.name }}
+                </a-radio>
+              </template>
+
+              <template v-if="column.dataIndex === 'customDomain'">
+                <a-input
+                  :value="formState.bucketConfigs[record.name]?.customDomain || ''"
+                  @update:value="(val) => { formState.bucketConfigs[record.name].customDomain = val || '' }"
+                  placeholder="例如: https://cdn.example.com"
+                  size="small"
+                />
+              </template>
+
+              <template v-if="column.dataIndex === 'test'">
+                <a-button
+                  size="small"
+                  @click="testBucket(record.name)"
+                  :loading="testingBuckets[record.name]"
+                >
+                  测试连接
+                </a-button>
+                <a-tag v-if="testResults[record.name]?.success" color="success" style="margin-left: 4px">
+                  连通
+                </a-tag>
+                <a-tag v-if="testResults[record.name]?.success === false" color="error" style="margin-left: 4px">
+                  失败
+                </a-tag>
+              </template>
+
+              <template v-if="column.dataIndex === 'action'">
+                <a-button
+                  type="link"
+                  size="small"
+                  danger
+                  :disabled="record.name === formState.currentBucket && Object.keys(formState.bucketConfigs).length === 1"
+                  @click="removeBucket(record.name)"
+                >
+                  删除
+                </a-button>
+              </template>
+            </template>
+          </a-table>
+        </a-form-item>
+
+        <!-- 手动添加存储桶 -->
+        <a-form-item label="手动添加存储桶">
+          <a-input-search
+            v-model:value="manualBucketName"
+            placeholder="输入存储桶名称"
+            enter-button="添加"
+            @search="addBucketManual"
+          />
         </a-form-item>
       </a-form>
     </a-card>
@@ -147,9 +210,10 @@
       <a-typography-paragraph>
         <pre
           style="
-            background: #f5f5f5;
+            background: var(--color-bg-secondary);
             padding: 10px;
-            border-radius: 4px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
             overflow-x: auto;
           "
         >
@@ -188,16 +252,39 @@ const testing = ref(false);
 const corsError = ref(false);
 const configSaved = ref(false);
 
-// 表单状态
+// 表单状态（不再包含 bucket 字段）
 const formState = reactive({
   endpoint: "",
   region: "auto",
-  bucket: "",
   accessKeyId: "",
   secretAccessKey: "",
+  bucketConfigs: {},
+  currentBucket: "",
 });
 
-// 表单验证规则
+// 存储桶管理状态
+const manualBucketName = ref("");
+const testingBuckets = reactive({}); // { bucketName: true/false }
+const testResults = reactive({});    // { bucketName: { success, error } }
+
+// 存储桶表格列定义
+const bucketColumns = [
+  { title: "存储桶名称", dataIndex: "name", key: "name" },
+  { title: "自定义域名", dataIndex: "customDomain", key: "customDomain" },
+  { title: "连接测试", dataIndex: "test", key: "test", width: 180 },
+  { title: "操作", dataIndex: "action", key: "action", width: 80 },
+];
+
+// 存储桶列表数据
+const bucketListData = computed(() => {
+  return Object.keys(formState.bucketConfigs).map(name => ({
+    name,
+    customDomain: formState.bucketConfigs[name]?.customDomain || "",
+    key: name,
+  }));
+});
+
+// 表单验证规则（不再包含 bucket）
 const rules = {
   endpoint: [
     {
@@ -209,13 +296,6 @@ const rules = {
       type: "string",
       pattern: /^https?:\/\/.+/,
       message: "终端节点 URL 必须以 http://或 https://开头",
-      trigger: ["blur", "change"],
-    },
-  ],
-  bucket: [
-    {
-      required: true,
-      message: "请输入存储桶名称",
       trigger: ["blur", "change"],
     },
   ],
@@ -235,28 +315,102 @@ const rules = {
   ],
 };
 
-// 判断表单是否完整填写
+// 判断表单是否完整填写（不再需要 bucket）
 const isFormComplete = computed(() => {
   return (
     formState.endpoint &&
-    formState.bucket &&
     formState.accessKeyId &&
     formState.secretAccessKey
   );
 });
+
+// 存储桶管理方法
+
+// 手动添加
+const addBucketManual = (bucketName) => {
+  bucketName = bucketName.trim();
+  if (!bucketName) {
+    message.warning("请输入存储桶名称");
+    return;
+  }
+  if (formState.bucketConfigs[bucketName]) {
+    message.warning("该存储桶已添加");
+    return;
+  }
+  formState.bucketConfigs[bucketName] = { customDomain: "" };
+  if (!formState.currentBucket) {
+    formState.currentBucket = bucketName;
+  }
+  manualBucketName.value = "";
+  message.success(`已添加存储桶：${bucketName}`);
+};
+
+// 删除桶
+const removeBucket = (bucketName) => {
+  if (bucketName === formState.currentBucket && Object.keys(formState.bucketConfigs).length === 1) {
+    message.warning("至少需要保留一个存储桶");
+    return;
+  }
+  if (bucketName === formState.currentBucket) {
+    // 切换到另一个桶
+    const remaining = Object.keys(formState.bucketConfigs).filter(b => b !== bucketName);
+    formState.currentBucket = remaining[0] || "";
+  }
+  delete formState.bucketConfigs[bucketName];
+  // 清除测试结果
+  delete testResults[bucketName];
+  delete testingBuckets[bucketName];
+  message.success(`已移除存储桶：${bucketName}`);
+};
+
+// 设置当前桶
+const setCurrentBucket = (bucketName) => {
+  formState.currentBucket = bucketName;
+};
+
+// 更新桶的自定义域名
+const updateBucketCustomDomain = (bucketName, customDomain) => {
+  if (formState.bucketConfigs[bucketName]) {
+    formState.bucketConfigs[bucketName].customDomain = customDomain?.trim().replace(/\/+$/, "") || ""
+  }
+}
+
+// 测试单个桶的连通性
+const testBucket = async (bucketName) => {
+  testingBuckets[bucketName] = true;
+  try {
+    const result = await s3Service.testBucket(bucketName);
+    testResults[bucketName] = result;
+    if (result.success) {
+      message.success(`存储桶 ${bucketName} 连接成功`);
+    } else {
+      message.error(`存储桶 ${bucketName} 连接失败: ${result.error}`);
+    }
+  } catch (error) {
+    testResults[bucketName] = { success: false, error: error.message };
+    message.error(`测试失败: ${error.message}`);
+  } finally {
+    testingBuckets[bucketName] = false;
+  }
+};
 
 // 提交表单
 const onFinish = async () => {
   loading.value = true;
 
   try {
-    // 保存配置到 Vuex 和本地存储，包括密钥
-    const config = { ...formState };
+    const config = {
+      endpoint: formState.endpoint,
+      region: formState.region,
+      accessKeyId: formState.accessKeyId,
+      secretAccessKey: formState.secretAccessKey,
+      bucketConfigs: { ...formState.bucketConfigs },
+      currentBucket: formState.currentBucket,
+    };
     await store.dispatch("saveConfig", config);
 
     message.success("配置已保存");
     configSaved.value = true;
-    // 重置 CORS 错误标志
     corsError.value = false;
   } catch (error) {
     console.error("保存配置失败：", error);
@@ -272,31 +426,49 @@ const testConnection = async () => {
   corsError.value = false;
 
   try {
-    // 创建临时 S3 服务客户端
-    const tempService = new s3Service.constructor({ ...formState });
+    const tempService = new s3Service.constructor({
+      endpoint: formState.endpoint,
+      region: formState.region,
+      accessKeyId: formState.accessKeyId,
+      secretAccessKey: formState.secretAccessKey,
+    });
 
-    // 尝试列出对象
-    await tempService.listObjects();
+    // 测试已配置的存储桶连通性
+    if (formState.currentBucket) {
+      const result = await tempService.testBucket(formState.currentBucket);
+      if (result.success) {
+        message.success(`连接成功！存储桶 ${formState.currentBucket} 可访问。`);
+      } else {
+        message.warning(`S3 连接正常，但存储桶 ${formState.currentBucket} 访问失败：${result.error}`);
+      }
+    } else {
+      message.warning("请先添加一个存储桶再测试连接");
+    }
 
-    message.success("连接成功！可以正常访问您的 R2 存储桶。");
+    // 保存配置到 Vuex 和本地存储，确保 s3Service 已初始化
+    const config = {
+      endpoint: formState.endpoint,
+      region: formState.region,
+      accessKeyId: formState.accessKeyId,
+      secretAccessKey: formState.secretAccessKey,
+      bucketConfigs: { ...formState.bucketConfigs },
+      currentBucket: formState.currentBucket,
+    };
+    await store.dispatch("saveConfig", config);
+    configSaved.value = true;
 
-    // 连接成功后，执行一次缓存刷新操作
-    try {
-      message.loading("正在初始化缓存数据...", 0);
-      
-      // 先保存配置到 Vuex 和本地存储，确保 s3Service 已初始化
-      const config = { ...formState };
-      await store.dispatch("saveConfig", config);
-      
-      // 使用实际的 s3Service 实例刷新缓存
-      await cacheService.refreshBucketData(s3Service);
-      
-      message.destroy(); // 关闭加载提示
-      message.success("缓存数据初始化完成！");
-    } catch (cacheError) {
-      message.destroy(); // 关闭加载提示
-      console.error("初始化缓存失败：", cacheError);
-      message.warning("连接成功，但初始化缓存数据失败，您可以稍后在图床管理页面手动刷新。");
+    // 初始化缓存
+    if (formState.currentBucket) {
+      try {
+        message.loading("正在初始化缓存数据...", 0);
+        await cacheService.refreshBucketData(s3Service);
+        message.destroy();
+        message.success("缓存数据初始化完成！");
+      } catch (cacheError) {
+        message.destroy();
+        console.error("初始化缓存失败：", cacheError);
+        message.warning("连接成功，但初始化缓存数据失败，您可以稍后在图床管理页面手动刷新。");
+      }
     }
   } catch (error) {
     console.error("连接测试失败：", error);
@@ -310,7 +482,6 @@ const testConnection = async () => {
     ) {
       corsError.value = true;
       message.error("CORS 错误：您需要在 R2 控制台中配置跨域资源共享设置");
-      // 滚动到 CORS 配置说明
       setTimeout(() => {
         document
           .getElementById("cors-config")
@@ -329,8 +500,29 @@ onMounted(() => {
   // 检查 Vuex 中是否已有配置
   const storeConfig = store.state.s3Config;
   if (storeConfig) {
-    // 将 Vuex 中的配置复制到表单
-    Object.assign(formState, storeConfig);
+    // 加载新的配置格式
+    formState.endpoint = storeConfig.endpoint || "";
+    formState.region = storeConfig.region || "auto";
+    formState.accessKeyId = storeConfig.accessKeyId || "";
+    formState.secretAccessKey = storeConfig.secretAccessKey || "";
+    formState.bucketConfigs = storeConfig.bucketConfigs || {};
+    formState.currentBucket = storeConfig.currentBucket || Object.keys(formState.bucketConfigs)[0] || "";
+
+    // 向后兼容：如果还没有 bucketConfigs 但有旧的 bucket/buckets
+    if (Object.keys(formState.bucketConfigs).length === 0) {
+      if (storeConfig.buckets && storeConfig.buckets.length > 0) {
+        storeConfig.buckets.forEach(name => {
+          formState.bucketConfigs[name] = { customDomain: "" };
+        });
+      } else if (storeConfig.bucket) {
+        formState.bucketConfigs[storeConfig.bucket] = { customDomain: "" };
+      }
+      if (!formState.currentBucket) {
+        formState.currentBucket = storeConfig.bucket || Object.keys(formState.bucketConfigs)[0] || "";
+      }
+    }
+
+    configSaved.value = true;
     return;
   }
 
@@ -338,27 +530,55 @@ onMounted(() => {
   const cachedConfig =
     s3Service.loadConfigFromStorage() || cacheService.loadUserConfig();
   if (cachedConfig) {
-    Object.assign(formState, cachedConfig);
-    // 同时更新到 Vuex
+    formState.endpoint = cachedConfig.endpoint || "";
+    formState.region = cachedConfig.region || "auto";
+    formState.accessKeyId = cachedConfig.accessKeyId || "";
+    formState.secretAccessKey = cachedConfig.secretAccessKey || "";
+    formState.bucketConfigs = cachedConfig.bucketConfigs || {};
+
+    // 向后兼容
+    if (Object.keys(formState.bucketConfigs).length === 0) {
+      if (cachedConfig.buckets && cachedConfig.buckets.length > 0) {
+        cachedConfig.buckets.forEach(name => {
+          formState.bucketConfigs[name] = { customDomain: "" };
+        });
+      } else if (cachedConfig.bucket) {
+        formState.bucketConfigs[cachedConfig.bucket] = { customDomain: "" };
+      }
+    }
+
+    formState.currentBucket = cachedConfig.currentBucket || cachedConfig.bucket || Object.keys(formState.bucketConfigs)[0] || "";
+
+    // 迁移旧的全局 customDomainPrefix 到当前桶
+    try {
+      const settingsStr = localStorage.getItem('userSettings')
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr)
+        if (settings?.customDomainPrefix && formState.currentBucket && formState.bucketConfigs[formState.currentBucket]) {
+          if (!formState.bucketConfigs[formState.currentBucket].customDomain) {
+            formState.bucketConfigs[formState.currentBucket].customDomain = settings.customDomainPrefix.trim().replace(/\/+$/, '')
+          }
+        }
+      }
+    } catch (e) {
+      // 忽略迁移失败
+    }
+
     store.dispatch("saveConfig", cachedConfig);
+    configSaved.value = true;
   }
 });
 </script>
 
 <style scoped>
-.config-container {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
 .config-card {
   margin-bottom: 24px;
 }
 
 .config-help {
-  background-color: #fafafa;
-  border-radius: 4px;
   padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 pre {

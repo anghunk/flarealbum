@@ -71,22 +71,25 @@
       </template>
     </a-page-header>
 
-    <!-- 自定义域名提示 -->
-    <a-alert
-      v-if="customDomainPrefix"
-      type="info"
-      show-icon
-      style="margin-bottom: 16px"
-    >
-      <template #message>
-        当前使用自定义域名前缀：<a-tag color="blue">{{ customDomainPrefix }}</a-tag>
-      </template>
-      <template #description>
-        所有图片链接将使用此域名前缀，而不是默认的 R2 存储 URL。您可以在<router-link to="/settings">设置页面</router-link>中修改。
-      </template>
-    </a-alert>
-
     <a-card>
+      <!-- 存储桶选择器 -->
+      <div v-if="buckets.length > 1" style="margin-bottom: 16px">
+        <a-select
+          :value="currentBucket"
+          @change="handleBucketChange"
+          style="width: 200px"
+          placeholder="选择存储桶"
+        >
+          <a-select-option
+            v-for="bucket in buckets"
+            :key="bucket"
+            :value="bucket"
+          >
+            {{ bucket }}
+          </a-select-option>
+        </a-select>
+      </div>
+
       <!-- 面包屑导航 -->
       <a-breadcrumb style="margin-bottom: 16px">
         <a-breadcrumb-item>
@@ -130,6 +133,7 @@
         :pagination="{ pageSize: 10 }"
         :locale="{ emptyText: '当前目录为空' }"
         row-key="key"
+        :row-class-name="(record) => deletingKeys.has(record.key) ? 'deleting-row' : ''"
       >
         <!-- 缩略图列 -->
         <template #bodyCell="{ column, record }">
@@ -176,11 +180,12 @@
           <!-- 操作列 -->
           <template v-if="column.dataIndex === 'action'">
             <a-space>
-              <a-button 
-                v-if="!record.isFolder" 
-                type="link" 
+              <a-button
+                v-if="!record.isFolder"
+                type="link"
                 size="small"
                 @click="copyUrl(record.key)"
+                :disabled="deletingKeys.has(record.key)"
               >
                 复制链接
               </a-button>
@@ -189,7 +194,15 @@
                 title="确定要删除这个文件吗?"
                 @confirm="deleteFile(record.key)"
               >
-                <a-button type="link" size="small" danger>删除</a-button>
+                <a-button
+                  type="link"
+                  size="small"
+                  danger
+                  :disabled="deletingKeys.has(record.key)"
+                  :loading="deletingKeys.has(record.key)"
+                >
+                  删除
+                </a-button>
               </a-popconfirm>
             </a-space>
           </template>
@@ -205,8 +218,7 @@
             :key="item.key"
             :xs="12" :sm="8" :md="6" :lg="4" :xl="4"
           >
-            <a-card 
-              hoverable 
+            <a-card
               class="grid-card folder-card"
               @click="openFolder(item.key)"
             >
@@ -218,15 +230,15 @@
           </a-col>
           
           <!-- 图片文件 -->
-          <a-col 
-            v-for="item in fileList.filter(file => !file.isFolder && isImageFile(file.name))" 
+          <a-col
+            v-for="item in fileList.filter(file => !file.isFolder && isImageFile(file.name))"
             :key="item.key"
             :xs="12" :sm="8" :md="6" :lg="4" :xl="4"
           >
-            <a-card 
-              hoverable 
+            <a-card
               class="grid-card image-card"
-              @click="openPreview(item)"
+              :class="{ 'deleting-card': deletingKeys.has(item.key) }"
+              @click="deletingKeys.has(item.key) ? null : openPreview(item)"
             >
               <div class="grid-card-content">
                 <div class="grid-image-container">
@@ -236,42 +248,50 @@
                 <div class="grid-file-name">{{ item.name }}</div>
                 <div class="grid-file-info">{{ formatFileSize(item.size) }}</div>
               </div>
+              <!-- 正在删除时的 loading 遮罩 -->
+              <div v-if="deletingKeys.has(item.key)" class="deleting-overlay">
+                <a-spin />
+              </div>
               <template #actions>
-                <a-button type="link" size="small" @click.stop="copyUrl(item.key)">复制链接</a-button>
+                <a-button type="link" size="small" @click.stop="copyUrl(item.key)" :disabled="deletingKeys.has(item.key)">复制链接</a-button>
                 <a-popconfirm
                   title="确定要删除这个文件吗?"
                   @confirm.stop="deleteFile(item.key)"
                   @click.stop
                 >
-                  <a-button type="link" size="small" danger>删除</a-button>
+                  <a-button type="link" size="small" danger :disabled="deletingKeys.has(item.key)">删除</a-button>
                 </a-popconfirm>
               </template>
             </a-card>
           </a-col>
           
           <!-- 其他文件 -->
-          <a-col 
-            v-for="item in fileList.filter(file => !file.isFolder && !isImageFile(file.name))" 
+          <a-col
+            v-for="item in fileList.filter(file => !file.isFolder && !isImageFile(file.name))"
             :key="item.key"
             :xs="12" :sm="8" :md="6" :lg="4" :xl="4"
           >
-            <a-card 
-              hoverable 
+            <a-card
               class="grid-card file-card"
+              :class="{ 'deleting-card': deletingKeys.has(item.key) }"
             >
               <div class="grid-card-content">
                 <file-outlined class="grid-file-icon" />
                 <div class="grid-file-name">{{ item.name }}</div>
                 <div class="grid-file-info">{{ formatFileSize(item.size) }}</div>
               </div>
+              <!-- 正在删除时的 loading 遮罩 -->
+              <div v-if="deletingKeys.has(item.key)" class="deleting-overlay">
+                <a-spin />
+              </div>
               <template #actions>
-                <a-button type="link" size="small" @click.stop="copyUrl(item.key)">复制链接</a-button>
+                <a-button type="link" size="small" @click.stop="copyUrl(item.key)" :disabled="deletingKeys.has(item.key)">复制链接</a-button>
                 <a-popconfirm
                   title="确定要删除这个文件吗?"
                   @confirm.stop="deleteFile(item.key)"
                   @click.stop
                 >
-                  <a-button type="link" size="small" danger>删除</a-button>
+                  <a-button type="link" size="small" danger :disabled="deletingKeys.has(item.key)">删除</a-button>
                 </a-popconfirm>
               </template>
             </a-card>
@@ -346,6 +366,7 @@ const showBucketTree = ref(false) // 是否显示存储桶树结构
 const bucketTree = ref(null) // 存储桶树结构
 const cacheStats = ref(null) // 缓存统计
 const viewMode = ref('grid') // 修改默认为 'grid'，即九宫格模式
+const deletingKeys = ref(new Set()) // 正在删除的文件 key 集合
 
 // 添加默认占位图
 const placeholderImage = ref("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23f0f0f0'/%3E%3Cpath d='M100 80 L130 120 L100 160 L70 120 Z' fill='%23d9d9d9'/%3E%3Ccircle cx='100' cy='70' r='20' fill='%23d9d9d9'/%3E%3Ctext x='100' y='180' text-anchor='middle' fill='%23999' font-family='Arial' font-size='14'%3EFlareAlbum%3C/text%3E%3C/svg%3E")
@@ -406,6 +427,33 @@ const columns = [
 const checkS3Config = computed(() => {
   return !!store.state.s3Config
 })
+
+// 存储桶管理
+const currentBucket = computed(() => store.state.currentBucket || '')
+const buckets = computed(() => Object.keys(store.state.bucketConfigs || {}))
+
+const handleBucketChange = async (bucketName) => {
+  if (bucketName === currentBucket.value) return
+
+  try {
+    await store.dispatch('switchBucket', bucketName)
+
+    // 重置文件列表和路径
+    fileList.value = []
+    currentPath.value = ''
+    fileUrlCache.value = {}
+    previewUrl.value = ''
+    previewImage.value = null
+
+    // 重载新桶的数据
+    await loadFiles()
+
+    message.success(`已切换到存储桶：${bucketName}`)
+  } catch (error) {
+    console.error('切换存储桶失败：', error)
+    message.error(`切换存储桶失败：${error.message}`)
+  }
+}
 
 // 生成面包屑数据
 const breadcrumbParts = computed(() => {
@@ -571,14 +619,14 @@ const updateCacheStats = () => {
 // 预加载缩略图 URL
 const loadThumbnails = async (files) => {
   const imageFiles = files.filter(file => !file.isFolder && isImageFile(file.name))
-  
+
   // 从缓存加载 URL
   fileUrlCache.value = cacheService.loadFileUrls()
-  
-  // 检查是否有自定义域名前缀
-  const userSettings = store.state.userSettings
-  const customDomain = userSettings?.customDomainPrefix?.trim().replace(/\/+$/, '')
-  
+
+  // 从 per-bucket 配置读取自定义域名
+  const bucketConfig = store.state.bucketConfigs?.[currentBucket.value]
+  const customDomain = bucketConfig?.customDomain?.trim().replace(/\/+$/, '')
+
   // 如果有自定义域名前缀，直接使用它构建 URL
   if (customDomain) {
     imageFiles.forEach(file => {
@@ -592,7 +640,7 @@ const loadThumbnails = async (files) => {
       imageFiles.map(async (file) => {
         try {
           if (!fileUrlCache.value[file.key]) {
-            const url = await s3Service.getSignedUrl(file.key, 3600 * 24) // 24 小时有效期
+            const url = await s3Service.getSignedUrl(file.key, 3600 * 24)
             fileUrlCache.value[file.key] = url
           }
         } catch (error) {
@@ -601,7 +649,7 @@ const loadThumbnails = async (files) => {
       })
     )
   }
-  
+
   // 保存 URL 缓存
   cacheService.saveFileUrls(fileUrlCache.value)
 }
@@ -612,16 +660,15 @@ const getFileUrl = (key) => {
   if (fileUrlCache.value[key]) {
     return fileUrlCache.value[key]
   }
-  
-  // 如果缓存中没有，尝试使用自定义域名前缀
-  const userSettings = store.state.userSettings
-  if (userSettings?.customDomainPrefix) {
-    const domain = userSettings.customDomainPrefix.trim().replace(/\/+$/, '')
-    // 确保 key 不以/开头，避免双斜杠
+
+  // 如果缓存中没有，尝试使用 per-bucket 自定义域名
+  const bucketConfig = store.state.bucketConfigs?.[currentBucket.value]
+  if (bucketConfig?.customDomain) {
+    const domain = bucketConfig.customDomain.trim().replace(/\/+$/, '')
     const cleanKey = key.replace(/^\/+/, '')
     return `${domain}/${cleanKey}`
   }
-  
+
   // 没有自定义域名也没有缓存，返回 null
   return null
 }
@@ -685,44 +732,41 @@ const closePreview = () => {
 const copyUrl = async (key) => {
   try {
     let url = fileUrlCache.value[key]
-    
+
     // 如果缓存中没有，重新获取
     if (!url) {
-      // 检查是否有自定义域名前缀
-      const userSettings = store.state.userSettings
-      const customDomain = userSettings?.customDomainPrefix?.trim().replace(/\/+$/, '')
-      
+      // 从 per-bucket 配置读取自定义域名
+      const bucketConfig = store.state.bucketConfigs?.[currentBucket.value]
+      const customDomain = bucketConfig?.customDomain?.trim().replace(/\/+$/, '')
+
       if (customDomain) {
-        // 使用自定义域名
-        // 确保 key 不以/开头，避免双斜杠
         const cleanKey = key.replace(/^\/+/, '')
         url = `${customDomain}/${cleanKey}`
       } else {
-        // 否则获取签名 URL
         url = await s3Service.getSignedUrl(key)
       }
-      
+
       // 保存到缓存
       fileUrlCache.value[key] = url
-      
+
       // 更新 URL 缓存
       cacheService.saveFileUrls(fileUrlCache.value)
     }
-    
+
     // 获取用户设置中的复制格式
     const userSettings = store.state.userSettings
     const copyFormat = userSettings?.copyFormat || 'url'
     const fileName = key.split('/').pop()
-    
+
     let copyText = url
-    
+
     // 根据设置的格式转换 URL
     if (copyFormat === 'markdown') {
       copyText = `![${fileName}](${url})`
     } else if (copyFormat === 'html') {
       copyText = `<img src="${url}" alt="${fileName}" />`
     }
-    
+
     navigator.clipboard.writeText(copyText)
       .then(() => {
         message.success('链接已复制到剪贴板')
@@ -735,7 +779,7 @@ const copyUrl = async (key) => {
           content: h('div', [
             h('p', '请手动复制以下内容：'),
             h('pre', {
-              style: 'background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto;'
+              style: 'background: var(--color-bg-secondary); padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow-x: auto;'
             }, copyText)
           ])
         })
@@ -746,36 +790,38 @@ const copyUrl = async (key) => {
   }
 }
 
-// 删除文件
+// 删除文件（单项 loading，不影响全局）
 const deleteFile = async (key) => {
-  loading.value = true
-  
+  deletingKeys.value.add(key)
+
   try {
     await s3Service.deleteObject(key)
     message.success('文件已删除')
-    
+
+    // 从 deletingKeys 中移除（成功后 item 会被从列表删除）
+    deletingKeys.value.delete(key)
+
     // 从缓存中移除
     if (fileUrlCache.value[key]) {
       delete fileUrlCache.value[key]
       cacheService.saveFileUrls(fileUrlCache.value)
     }
-    
+
     // 从当前列表中移除
     fileList.value = fileList.value.filter(file => file.key !== key)
-    
+
     // 更新文件列表缓存
     cacheService.saveFileList(currentPath.value, fileList.value)
-    
+
     // 更新树结构
     bucketTree.value = cacheService.getBucketTree()
-    
+
     // 更新缓存统计
     updateCacheStats()
   } catch (error) {
     console.error('删除文件失败：', error)
     message.error(`删除失败：${error.message}`)
-  } finally {
-    loading.value = false
+    deletingKeys.value.delete(key)
   }
 }
 
@@ -809,10 +855,10 @@ const toggleViewMode = () => {
   localStorage.setItem('r2_image_hosting_view_mode', viewMode.value)
 }
 
-// 获取自定义域名前缀
+// 获取当前桶的自定义域名前缀
 const customDomainPrefix = computed(() => {
-  const userSettings = store.state.userSettings
-  return userSettings?.customDomainPrefix || null
+  const bucketConfig = store.state.bucketConfigs?.[currentBucket.value]
+  return bucketConfig?.customDomain?.trim().replace(/\/+$/, '') || null
 })
 
 // 处理图片加载错误
@@ -930,8 +976,8 @@ watch(
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  border-radius: 4px;
-  background-color: #f0f0f0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
 }
 
 .image-thumbnail img {
@@ -942,33 +988,32 @@ watch(
 
 /* 占位图样式 */
 .placeholder-image {
-  opacity: 0.8;
-  background-color: #f5f5f5;
-  border: 1px dashed #d9d9d9;
+  opacity: 0.6;
+  border: 1px solid var(--color-border);
 }
 
 .folder-icon {
   font-size: 24px;
-  color: #faad14;
+  color: var(--color-text-secondary);
 }
 
 .file-icon {
   font-size: 24px;
-  color: #1890ff;
+  color: var(--color-text-secondary);
 }
 
 .image-icon {
   font-size: 24px;
-  color: #52c41a;
+  color: var(--color-text-secondary);
 }
 
 .image-name {
   cursor: pointer;
-  color: #1890ff;
+  color: var(--color-accent);
 }
 
 .image-name:hover {
-  text-decoration: underline;
+  opacity: 0.7;
 }
 
 .tree-container {
@@ -979,7 +1024,7 @@ watch(
 .cache-stats {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--color-border);
 }
 
 /* 网格视图样式 */
@@ -997,38 +1042,38 @@ watch(
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px; /* 减小内边距 */
-  height: 180px; /* 增加高度以显示更大的图片 */
+  padding: 8px;
+  height: 140px;
   overflow: hidden;
 }
 
 .grid-folder-icon {
-  font-size: 56px; /* 增大文件夹图标 */
-  color: #faad14;
-  margin-bottom: 12px;
+  font-size: 32px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
 }
 
 .grid-file-icon {
-  font-size: 56px; /* 增大文件图标 */
-  color: #1890ff;
-  margin-bottom: 12px;
+  font-size: 32px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
 }
 
 .grid-image-icon {
-  font-size: 56px; /* 增大图像图标 */
-  color: #52c41a;
-  margin-bottom: 12px;
+  font-size: 32px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
 }
 
 .grid-image-container {
   width: 100%;
-  height: 160px; /* 增大图片容器高度 */
+  height: 120px;
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 8px; /* 减小底部边距 */
-  background-color: #f0f0f0;
-  border-radius: 4px;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -1057,7 +1102,7 @@ watch(
 
 .grid-file-info {
   font-size: 12px;
-  color: #999;
+  color: var(--color-text-muted);
   text-align: center;
 }
 
@@ -1072,5 +1117,29 @@ watch(
 .empty-container {
   padding: 40px 0;
   text-align: center;
+}
+
+/* 正在删除的卡片/行样式 */
+.deleting-card {
+  opacity: 0.6;
+  position: relative;
+}
+
+.deleting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 10;
+  border-radius: var(--radius-sm);
+}
+
+:deep(.deleting-row) {
+  opacity: 0.6;
 }
 </style> 
