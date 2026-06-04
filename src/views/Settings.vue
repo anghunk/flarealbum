@@ -2,7 +2,8 @@
   <div class="settings-container">
     <a-page-header title="我的设置" />
 
-    <a-card title="通用设置">
+    <!-- 复制与链接设置 -->
+    <a-card title="复制与链接" class="settings-card">
       <a-form layout="vertical">
         <a-form-item label="默认复制格式">
           <a-radio-group v-model:value="copyFormat">
@@ -12,6 +13,15 @@
           </a-radio-group>
         </a-form-item>
 
+        <a-form-item label="自动复制上传后的链接">
+          <a-switch v-model:checked="autoCopy" />
+        </a-form-item>
+      </a-form>
+    </a-card>
+
+    <!-- 上传路径设置 -->
+    <a-card title="上传路径" class="settings-card">
+      <a-form layout="vertical">
         <a-form-item label="上传路径模板">
           <a-select
             v-model:value="uploadPathTemplate"
@@ -54,15 +64,12 @@
             最终路径示例：<a-tag color="green">{{ getFinalPathExample() }}</a-tag>
           </div>
         </a-form-item>
+      </a-form>
+    </a-card>
 
-        <a-alert
-          type="info"
-          show-icon
-          message="自定义域名设置已迁移"
-          description="自定义域名现在可以在「S3 配置」页面中为每个存储桶单独设置，支持不同存储桶使用不同的域名。"
-          style="margin-bottom: 16px"
-        />
-
+    <!-- 图片处理设置 -->
+    <a-card title="图片处理" class="settings-card">
+      <a-form layout="vertical">
         <a-form-item label="默认文件名处理">
           <a-radio-group v-model:value="defaultFileNameOption">
             <a-radio value="original">保留原始文件名</a-radio>
@@ -71,7 +78,7 @@
           </a-radio-group>
         </a-form-item>
 
-        <a-form-item label="图片自动转换为WebP格式">
+        <a-form-item label="图片自动转换为 WebP 格式">
           <a-switch v-model:checked="convertToWebp" />
           <div class="setting-tip">
             启用后，上传的图片将自动转换为 WebP 格式，可以大幅减小文件体积并提高加载速度。
@@ -79,7 +86,7 @@
           </div>
         </a-form-item>
 
-        <a-form-item label="WebP质量设置" v-if="convertToWebp">
+        <a-form-item label="WebP 质量设置" v-if="convertToWebp">
           <a-slider
             v-model:value="webpQuality"
             :min="50"
@@ -96,18 +103,11 @@
             的设置可以平衡质量和体积。
           </div>
         </a-form-item>
-
-        <a-form-item label="自动复制上传后的链接">
-          <a-switch v-model:checked="autoCopy" />
-        </a-form-item>
-
-        <a-form-item>
-          <a-button type="primary" @click="saveSettings">保存设置</a-button>
-        </a-form-item>
       </a-form>
     </a-card>
 
-    <a-card title="数据管理" style="margin-top: 16px">
+    <!-- 数据管理 -->
+    <a-card title="数据管理" class="settings-card">
       <a-space direction="vertical" style="width: 100%">
         <a-alert
           type="info"
@@ -119,7 +119,8 @@
       </a-space>
     </a-card>
 
-    <a-card title="关于" style="margin-top: 16px">
+    <!-- 关于 -->
+    <a-card title="关于" class="settings-card">
       <a-typography>
         <a-typography-title :level="4">FlareAlbum</a-typography-title>
         <a-typography-paragraph>
@@ -143,6 +144,11 @@
         </a-typography-paragraph>
       </a-typography>
     </a-card>
+
+    <!-- 保存按钮 -->
+    <div class="settings-actions">
+      <a-button type="primary" size="large" @click="saveSettings">保存设置</a-button>
+    </div>
   </div>
 </template>
 
@@ -305,9 +311,25 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.settings-card {
+  margin-bottom: 24px;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+  padding-bottom: 24px;
+}
+
 .setting-tip {
   color: var(--color-text-secondary);
-  font-size: 12px;
-  margin-top: 4px;
+  font-size: 13px;
+  margin-top: 8px;
+  line-height: 1.6;
+}
+
+:deep(.ant-form-item) {
+  margin-bottom: 20px;
 }
 </style>

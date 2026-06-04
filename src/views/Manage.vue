@@ -358,7 +358,7 @@
       :destroyOnClose="true"
       :maskClosable="true"
       centered
-      width="800px"
+      width="520px"
     >
       <img
         v-if="previewUrl"
@@ -1226,8 +1226,6 @@ watch(
   justify-content: center;
   align-items: center;
   margin-bottom: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
